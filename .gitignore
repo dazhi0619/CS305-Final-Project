@@ -1,0 +1,5 @@
+*.pdf
+*.fragment
+*.chunkhash
+__pycache__
+log/
