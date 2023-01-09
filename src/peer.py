@@ -7,6 +7,7 @@ import struct
 import select
 import sys
 import os
+from time import time
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from util import bt_utils
@@ -21,6 +22,7 @@ MAGIC = 52305
 HASHLEN = 40
 SENDPKT = ">HBBHHII"
 RECVPKT = ">HBBHHII"
+TIMEOUT = 3
 
 # packet types
 WHOHAS = 0
@@ -57,7 +59,7 @@ class Peer:
         self.sending = {}
         # [(team number, ip, port, state)], records the address of other peers
         self.peers = [(n, i, p, DISCONNECTED) for n, i, p in configuration.peers]
-        # {checksum(str) : data}, records the data that this peer already has
+        # {checksum(bytes) : data}, records the data that this peer already has
         self.haschunks = {
             bytes(x, "ascii"): config.haschunks[x] for x in config.haschunks
         }
@@ -65,6 +67,8 @@ class Peer:
         self.peerchunks = {}
         self.team = configuration.identity
         self.maxconn = configuration.max_conn
+        # [(timestamp, seq, dest team number, data)]
+        self.sent_pkt = []
 
     def constr_packet(self, packet_type, seq, ack, data: bytes):
         # |2byte magic|1byte team|1byte type|
@@ -178,6 +182,7 @@ class Peer:
             self.peers[idx] = (*self.peers[idx][0:3], HANDSHAKE)
         elif Type == GET:
             print(f"receive get from peer {Team}")
+
             # received a GET pkt
             send_chunk_checksum = data[:HASHLEN]
             print(f"send_chunk_checksum = {send_chunk_checksum}")
@@ -196,11 +201,19 @@ class Peer:
                 0,
             )
             sock.sendto(data_header + chunk_data, from_addr)
+            self.sent_pkt.append((time(), 1, Team, data_header + chunk_data))
 
             # change the state to SEND
             idx = next(i for i, v in enumerate(self.peers) if v[0] == str(Team))
             self.peers[idx] = (*self.peers[idx][0:3], SEND)
         elif Type == DATA:
+            try:
+                # delete the packet in self.sent_pkt
+                idx = next(i for i, v in enumerate(self.sent_pkt) if v[2] == Team)
+                self.sent_pkt.pop(idx)
+            except StopIteration:
+                pass
+
             # change the state to RECV
             idx = next(i for i, v in enumerate(self.peers) if v[0] == str(Team))
             self.peers[idx] = (*self.peers[idx][0:3], RECV)
@@ -229,8 +242,11 @@ class Peer:
                 # finished downloading this chunkdata!
                 # dump your received chunk to file in dict form using pickle
                 if len(self.demand) == 0:
+                    received = {
+                        str(i, "ascii"): receiving_chunks[i] for i in receiving_chunks
+                    }
                     with open(self.ex_output_file, "wb") as wf:
-                        pickle.dump(receiving_chunks, wf)
+                        pickle.dump(received, wf)
                     # you need to print "GOT" when finished downloading all chunks in a DOWNLOAD file
                     print(f"GOT {self.ex_output_file}")
 
@@ -261,6 +277,14 @@ class Peer:
                 # else:
                 #     print("Example fails. Please check the example files carefully.")
         elif Type == ACK:
+            # delete the packet in self.sent_pkt
+            idx = next(
+                i
+                for i, v in enumerate(self.sent_pkt)
+                if v[1] + 1 == ack_num and v[2] == Team
+            )
+            self.sent_pkt.pop(idx)
+
             # received an ACK pkt
             if (ack_num - 1) * MAX_PAYLOAD >= CHUNK_DATA_SIZE:
                 # finished
@@ -285,6 +309,7 @@ class Peer:
                     socket.htonl(seq_num),
                 )
                 sock.sendto(data_header + next_data, from_addr)
+                self.sent_pkt.append((time(), ack_num, Team, data_header + next_data))
         elif Type == DENIED:
             # received an DENIED pkt
             pass
@@ -323,6 +348,7 @@ class Peer:
                     get_pkt = self.constr_packet(GET, 0, 1, d)
                     dest = next(x for x in self.peers if x[0] == str(p))
                     sock.sendto(get_pkt, (dest[1], int(dest[2])))
+                    self.sent_pkt.append((time(), 0, p, get_pkt))
                     print(f"send get to {p} for {d}")
 
 
@@ -346,6 +372,11 @@ def peer_run(configuration):
                 # No pkt nor input arrives during this period
                 if download_instruction:
                     peer.get(sock)
+                if len(peer.sent_pkt) > 0 and time() - peer.sent_pkt[0][0] > TIMEOUT:
+                    dest = next(
+                        x for x in peer.peers if x[0] == str(peer.sent_pkt[0][2])
+                    )
+                    sock.sendto(peer.sent_pkt[0][3], (dest[1], int(dest[2])))
                 pass
     except KeyboardInterrupt:
         pass
