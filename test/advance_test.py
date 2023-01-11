@@ -5,6 +5,7 @@ import hashlib
 import pytest
 import os
 import shutil
+
 """
 Initial fragments:
 
@@ -63,7 +64,8 @@ And you can visualize your network using net-visual.py
 
 """
 
-@pytest.fixture(scope='module')
+
+@pytest.fixture(scope="module")
 def advance_session():
     success = False
     time_max = 640
@@ -72,49 +74,141 @@ def advance_session():
         os.mkdir("test/tmp5/results")
 
     stime = time.time()
-    advance_session = grader.GradingSession(grader.normal_handler, latency=0.01, spiffy=True, topo_map="test/tmp5/topo5.map", nodes_map="test/tmp5/nodes5.map")
-    advance_session.add_peer(1, "src/peer.py", "test/tmp5/nodes5.map", "test/tmp5/fragments/data5-1.fragment", 100, ("127.0.0.1", 48001), timeout=None)
-    advance_session.add_peer(2, "src/peer.py", "test/tmp5/nodes5.map", "test/tmp5/fragments/data5-2.fragment", 100, ("127.0.0.1", 48002), timeout=None)
-    advance_session.add_peer(7, "src/peer.py", "test/tmp5/nodes5.map", "test/tmp5/fragments/data5-3.fragment", 100, ("127.0.0.1", 48003), timeout=None)
-    advance_session.add_peer(14, "src/peer.py", "test/tmp5/nodes5.map", "test/tmp5/fragments/data5-4.fragment", 100, ("127.0.0.1", 48004), timeout=None)
-    advance_session.add_peer(10, "src/peer.py", "test/tmp5/nodes5.map", "test/tmp5/fragments/data5-5.fragment", 100, ("127.0.0.1", 48005), timeout=None)
-    advance_session.add_peer(15, "src/peer.py", "test/tmp5/nodes5.map", "test/tmp5/fragments/data5-6.fragment", 100, ("127.0.0.1", 48006), timeout=None)
-    advance_session.add_peer(12, "src/peer.py", "test/tmp5/nodes5.map", "test/tmp5/fragments/data5-7.fragment", 100, ("127.0.0.1", 48007), timeout=None)
-    advance_session.add_peer(13, "src/peer.py", "test/tmp5/nodes5.map", "test/tmp5/fragments/data5-8.fragment", 100, ("127.0.0.1", 48008), timeout=None)
+    advance_session = grader.GradingSession(
+        grader.normal_handler,
+        latency=0.01,
+        spiffy=True,
+        topo_map="test/tmp5/topo5.map",
+        nodes_map="test/tmp5/nodes5.map",
+    )
+    advance_session.add_peer(
+        1,
+        "src/peer.py",
+        "test/tmp5/nodes5.map",
+        "test/tmp5/fragments/data5-1.fragment",
+        100,
+        ("127.0.0.1", 48001),
+        timeout=None,
+    )
+    advance_session.add_peer(
+        2,
+        "src/peer.py",
+        "test/tmp5/nodes5.map",
+        "test/tmp5/fragments/data5-2.fragment",
+        100,
+        ("127.0.0.1", 48002),
+        timeout=None,
+    )
+    advance_session.add_peer(
+        7,
+        "src/peer.py",
+        "test/tmp5/nodes5.map",
+        "test/tmp5/fragments/data5-3.fragment",
+        100,
+        ("127.0.0.1", 48003),
+        timeout=None,
+    )
+    advance_session.add_peer(
+        14,
+        "src/peer.py",
+        "test/tmp5/nodes5.map",
+        "test/tmp5/fragments/data5-4.fragment",
+        100,
+        ("127.0.0.1", 48004),
+        timeout=None,
+    )
+    advance_session.add_peer(
+        10,
+        "src/peer.py",
+        "test/tmp5/nodes5.map",
+        "test/tmp5/fragments/data5-5.fragment",
+        100,
+        ("127.0.0.1", 48005),
+        timeout=None,
+    )
+    advance_session.add_peer(
+        15,
+        "src/peer.py",
+        "test/tmp5/nodes5.map",
+        "test/tmp5/fragments/data5-6.fragment",
+        100,
+        ("127.0.0.1", 48006),
+        timeout=None,
+    )
+    advance_session.add_peer(
+        12,
+        "src/peer.py",
+        "test/tmp5/nodes5.map",
+        "test/tmp5/fragments/data5-7.fragment",
+        100,
+        ("127.0.0.1", 48007),
+        timeout=None,
+    )
+    advance_session.add_peer(
+        13,
+        "src/peer.py",
+        "test/tmp5/nodes5.map",
+        "test/tmp5/fragments/data5-8.fragment",
+        100,
+        ("127.0.0.1", 48008),
+        timeout=None,
+    )
     advance_session.run_grader()
 
-    advance_session.peer_list[("127.0.0.1", 48001)].send_cmd('''DOWNLOAD test/tmp5/targets/target1.chunkhash test/tmp5/results/result1.fragment\n''')
-    advance_session.peer_list[("127.0.0.1", 48003)].send_cmd('''DOWNLOAD test/tmp5/targets/target2.chunkhash test/tmp5/results/result2.fragment\n''')
-    advance_session.peer_list[("127.0.0.1", 48005)].send_cmd('''DOWNLOAD test/tmp5/targets/target3.chunkhash test/tmp5/results/result3.fragment\n''')
-    advance_session.peer_list[("127.0.0.1", 48008)].send_cmd('''DOWNLOAD test/tmp5/targets/target4.chunkhash test/tmp5/results/result4.fragment\n''')
-
+    advance_session.peer_list[("127.0.0.1", 48001)].send_cmd(
+        """DOWNLOAD test/tmp5/targets/target1.chunkhash test/tmp5/results/result1.fragment\n"""
+    )
+    advance_session.peer_list[("127.0.0.1", 48003)].send_cmd(
+        """DOWNLOAD test/tmp5/targets/target2.chunkhash test/tmp5/results/result2.fragment\n"""
+    )
+    advance_session.peer_list[("127.0.0.1", 48005)].send_cmd(
+        """DOWNLOAD test/tmp5/targets/target3.chunkhash test/tmp5/results/result3.fragment\n"""
+    )
+    advance_session.peer_list[("127.0.0.1", 48008)].send_cmd(
+        """DOWNLOAD test/tmp5/targets/target4.chunkhash test/tmp5/results/result4.fragment\n"""
+    )
 
     while True:
-        if os.path.exists("test/tmp5/results/result1.fragment") and os.path.exists("test/tmp5/results/result2.fragment")\
-             and os.path.exists("test/tmp5/results/result3.fragment") and os.path.exists("test/tmp5/results/result4.fragment"):
+        if (
+            os.path.exists("test/tmp5/results/result1.fragment")
+            and os.path.exists("test/tmp5/results/result2.fragment")
+            and os.path.exists("test/tmp5/results/result3.fragment")
+            and os.path.exists("test/tmp5/results/result4.fragment")
+        ):
             success = True
             break
-        elif time.time()-stime>time_max:
+        elif time.time() - stime > time_max:
             # Reached max transmission time, abort
             success = False
-            break 
+            break
 
         time.sleep(1)
-        
+
     for p in advance_session.peer_list.values():
         p.terminate_peer()
-    
+
     return advance_session, success
+
 
 def test_finish(advance_session):
     session, success = advance_session
     assert success == True, "Fail to complete transfer or timeout"
 
+
 def test_content():
-    check_target_result("test/tmp5/targets/target1.chunkhash", "test/tmp5/results/result1.fragment")
-    check_target_result("test/tmp5/targets/target2.chunkhash", "test/tmp5/results/result2.fragment")
-    check_target_result("test/tmp5/targets/target3.chunkhash", "test/tmp5/results/result3.fragment")
-    check_target_result("test/tmp5/targets/target4.chunkhash", "test/tmp5/results/result4.fragment")
+    check_target_result(
+        "test/tmp5/targets/target1.chunkhash", "test/tmp5/results/result1.fragment"
+    )
+    check_target_result(
+        "test/tmp5/targets/target2.chunkhash", "test/tmp5/results/result2.fragment"
+    )
+    check_target_result(
+        "test/tmp5/targets/target3.chunkhash", "test/tmp5/results/result3.fragment"
+    )
+    check_target_result(
+        "test/tmp5/targets/target4.chunkhash", "test/tmp5/results/result4.fragment"
+    )
+
 
 def check_target_result(target_file, result_file):
     target_hash = []
@@ -131,9 +225,13 @@ def check_target_result(target_file, result_file):
         result_fragments = pickle.load(rf)
 
     for th in target_hash:
-        assert th in result_fragments, f"download hash mismatch for target {target_file}, target: {th}, has: {result_fragments.keys()}"
+        assert (
+            th in result_fragments
+        ), f"download hash mismatch for target {target_file}, target: {th}, has: {result_fragments.keys()}"
 
         sha1 = hashlib.sha1()
         sha1.update(result_fragments[th])
         received_hash_str = sha1.hexdigest()
-        assert th.strip() == received_hash_str.strip(), f"received data mismatch for target {target_file}, expect hash: {target_hash}, actual: {received_hash_str}"
+        assert (
+            th.strip() == received_hash_str.strip()
+        ), f"received data mismatch for target {target_file}, expect hash: {target_hash}, actual: {received_hash_str}"

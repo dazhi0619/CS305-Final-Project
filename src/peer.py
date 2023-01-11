@@ -40,8 +40,6 @@ RECV = 2
 
 
 receiving_chunks = {}
-# indicate whether the user have instructed to download
-download_instruction = False
 
 
 class Peer:
@@ -53,7 +51,7 @@ class Peer:
         self.ex_output_file = None
         # {team number : checksum}, records the data that is being downloaded from peers
         self.downloading = {}
-        # [checksum of chunks to be downloaded], records the data that should be downloaded later
+        # [checksum of chunks to be downloaded(bytes)], records the data that should be downloaded later
         self.demand = []
         # {team number : checksum}, records the data that is being sent to peers
         self.sending = {}
@@ -114,11 +112,12 @@ class Peer:
             for line in lines:
                 _, datahash_str = line.strip().split(" ")
                 datahash_str = bytes(datahash_str, encoding="ascii")
-                receiving_chunks.update({datahash_str: bytes()})
                 if (
                     datahash_str not in self.demand
                     and datahash_str not in self.haschunks
+                    and datahash_str not in self.downloading.values()
                 ):
+                    receiving_chunks.update({datahash_str: bytes()})
                     self.demand.append(datahash_str)
 
             datahash = b""
@@ -239,9 +238,20 @@ class Peer:
                 f"In process_inbound_udp:DATA: len(receiving_chunks[h]) = {len(receiving_chunks[h])}"
             )
             if len(receiving_chunks[self.downloading[Team]]) == CHUNK_DATA_SIZE:
+                # add to this peer's haschunk:
+                self.haschunks[self.downloading[Team]] = receiving_chunks[
+                    self.downloading[Team]
+                ]
+                print(
+                    f"Team = {Team}, self.downloading = {self.downloading}, self.demand = {self.demand}"
+                )
+
+                # delete the chunk from self.downloading
+                self.downloading.pop(Team)
+
                 # finished downloading this chunkdata!
                 # dump your received chunk to file in dict form using pickle
-                if len(self.demand) == 0:
+                if len(self.downloading) == 0:
                     received = {
                         str(i, "ascii"): receiving_chunks[i] for i in receiving_chunks
                     }
@@ -249,13 +259,6 @@ class Peer:
                         pickle.dump(received, wf)
                     # you need to print "GOT" when finished downloading all chunks in a DOWNLOAD file
                     print(f"GOT {self.ex_output_file}")
-
-                # add to this peer's haschunk:
-                self.haschunks[self.downloading[Team]] = receiving_chunks[
-                    self.downloading[Team]
-                ]
-                if self.downloading[Team] in self.demand:
-                    self.demand.remove(self.downloading[Team])
 
                 # change the state to DISCONNECTED
                 idx = next(i for i, v in enumerate(self.peers) if v[0] == str(Team))
@@ -322,7 +325,6 @@ class Peer:
         global outf
         command, chunkf, outf = input().split(" ")
         if command == "DOWNLOAD":
-            globals()["download_instruction"] = True
             self.initial_download(sock, chunkf, outf)
         else:
             pass
@@ -370,14 +372,14 @@ def peer_run(configuration):
                     peer.process_user_input(sock)
             else:
                 # No pkt nor input arrives during this period
-                if download_instruction:
+                if len(peer.demand) > 0:
+                    peer.broadcast(sock)
                     peer.get(sock)
                 if len(peer.sent_pkt) > 0 and time() - peer.sent_pkt[0][0] > TIMEOUT:
                     dest = next(
                         x for x in peer.peers if x[0] == str(peer.sent_pkt[0][2])
                     )
                     sock.sendto(peer.sent_pkt[0][3], (dest[1], int(dest[2])))
-                pass
     except KeyboardInterrupt:
         pass
     finally:
