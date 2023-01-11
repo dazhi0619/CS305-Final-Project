@@ -25,7 +25,7 @@ MAGIC = 52305
 HASHLEN = 40
 SENDPKT = ">HBBHHII"
 RECVPKT = ">HBBHHII"
-RDT_TIMEOUT = 3
+RDT_TIMEOUT = 5
 
 # packet types
 WHOHAS = 0
@@ -160,6 +160,7 @@ class Peer:
         print(
             f"received {pkt_types[Type]} pkt: [from team: {Team}; head length: {hlen}; data length: {dlen}; seq: {seq_num}; ack: {ack_num};"
         )
+        print(f"the current state is {self.peers[Team][2]}")
         if Type == WHOHAS:
             # received an WHOHAS pkt
             # see what chunk the sender has
@@ -182,7 +183,8 @@ class Peer:
                 sock.sendto(ihave_pkt, from_addr)
 
                 # change the state to HANDSHAKE
-                self.peers[Team] = (*self.peers[Team][0:2], HANDSHAKE)
+                if self.peers[Team][2] == DISCONNECTED:
+                    self.peers[Team] = (*self.peers[Team][0:2], HANDSHAKE)
             elif len(self.sendBuffer) >= self.maxconn and ihave_pkt_list:
                 denied_header = self.constr_denied()
                 sock.sendto(denied_header, from_addr)
@@ -199,8 +201,8 @@ class Peer:
             print(f"Team {Team} has: {get_chunk_hash_list}")
             print("=================================")
             # change the state to HANDSHAKE
-
-            self.peers[Team] = (*self.peers[Team][0:2], HANDSHAKE)
+            if self.peers[Team][2] != RECV:
+                self.peers[Team] = (*self.peers[Team][0:2], HANDSHAKE)
         elif Type == GET:
             # 当发送端收到GET请求时，就初始化sendBuffer，并且发送第一个DATA包
             print(f"receive get from peer {Team}")
@@ -248,15 +250,16 @@ class Peer:
 
         elif Type == DATA:
             # received a DATA pkt
+            if Team not in self.downloading.keys():
+                return
             self.peers[Team] = (*self.peers[Team][0:2], RECV)
             h = self.downloading[Team]
 
             # send back ACK
-
             if seq_num == self.expectedSeqNum[Team]:
                 receiving_chunks[h] = receiving_chunks[h] + data
                 self.expectedSeqNum[Team] += 1
-                self.dupACKcount = 1
+                self.dupACKcount[Team] = 1
                 ack_pkt = struct.pack(
                     SENDPKT,
                     socket.htons(MAGIC),
@@ -321,8 +324,8 @@ class Peer:
                     # else:
                     #     print("Example fails. Please check the example files carefully.")
             else:
-                self.dupACKcount += 1
-                if self.dupACKcount <= 4:
+                self.dupACKcount[Team] += 1
+                if self.dupACKcount[Team] <= 8:
                     ack_pkt = struct.pack(
                         SENDPKT,
                         socket.htons(MAGIC),
@@ -458,10 +461,6 @@ class Peer:
                     self.peerchunks[team].remove(d)
                     self.demand.remove(d)
                     get_pkt = self.constr_packet(GET, 0, 0, d)
-                    # if team in self.sentWindow.keys():
-                    #     self.sentWindow[team].append(get_pkt)
-                    # else:
-                    #     self.sentWindow[team] = [get_pkt]
 
                     # init receiver parameter
                     self.expectedSeqNum[team] = 1
@@ -472,7 +471,10 @@ class Peer:
                     # self.sentWindow.append((time(), 0, p, get_pkt))
                     print(f"send GET to {team} for {d}")
                     print("=================================")
-        # TODO: DISCONNECT OTHERS
+        
+        for team in self.peers:
+            if self.peers[team][2] == HANDSHAKE:
+                self.peers[team] = (*self.peers[team][0:2], DISCONNECTED)
 
 
 def peer_run(configuration):
@@ -496,7 +498,7 @@ def peer_run(configuration):
                 if len(peer.demand) > 0:
                     peer.broadcast(sock)
                     peer.get(sock)
-                for team in peer.peers:
+                for team in peer.peers:                    
                     if peer.first_timeout[team] and (
                         (
                             team in peer.rdt_timer.keys()
@@ -538,7 +540,7 @@ def peer_run(configuration):
                             peer.congState = SLOW_START
                         peer.ssthreshold[team] = max(math.floor(peer.congWinSize[team] / 2), 2)
                         peer.congWinSize[team] = 1
-                        peer.sendWin_upper[team] = peer.sendWin_lower[team] + peer.congWinSize[team]
+                        peer.sendWin_upper[team] = peer.sendWin_lower[team]
                         peer.sentWindow[team] = peer.sentWindow[team][:peer.congWinSize[team]]
                         retransmit = copy.deepcopy(peer.sentWindow[team])
                         while retransmit:
@@ -555,7 +557,7 @@ def peer_run(configuration):
 
                     if (
                         peer.peers[team][2] == RECV
-                        and time() - peer.GET_timer[team] > RDT_TIMEOUT
+                        and team in peer.GET_timer.keys() and time() - peer.GET_timer[team] > RDT_TIMEOUT
                     ):
                         print("first time out")
                         peer.first_timeout[team] = True
@@ -592,7 +594,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("-i", type=int, help="<identity>     Which peer # am I?")
     parser.add_argument("-v", type=int, help="verbose level", default=0)
-    parser.add_argument("-t", type=int, help="pre-defined timeout", default=0)
+    parser.add_argument("-t", type=int, help="pre-defined timeout", default=5)
     args = parser.parse_args()
 
     config = bt_utils.BtConfig(args)
