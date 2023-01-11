@@ -86,9 +86,9 @@ class Peer:
         self.ssthreshold = {}               # congestion threshold
         self.dupACKcount = {}                # duplicate ACK
         self.congState = {}         # default state: slow start
-        first_timeout = {int(n): False for n, _, _ in configuration.peers}
 
         self.first_timeout = {int(n): False for n, _, _ in configuration.peers}
+        globals()['RDT_TIMEOUT'] = configuration.timeout
 
     def constr_packet(self, packet_type, seq, ack, data: bytes):
         # |2byte magic|1byte team|1byte type|
@@ -212,12 +212,12 @@ class Peer:
             self.sendBuffer[Team] = [self.haschunks[send_chunk_checksum][i*MAX_PAYLOAD: (i+1)*MAX_PAYLOAD] for i in range(512)]
             self.sendWin_lower[Team] = 1
             self.sendWin_upper[Team] = 1
-            self.sentWindow[Team] = deque()
+            self.sentWindow[Team] = []
             self.dupACKcount[Team] = 1
             # init congection controller
             self.congWinSize[Team] = 1
             self.congState[Team] = SLOW_START
-            self.ssthreshold[Team] = 1024
+            self.ssthreshold[Team] = 256
 
             while self.sendWin_upper[Team] < self.sendWin_lower[Team] + self.congWinSize[Team]:
                 chunk_data = self.sendBuffer[Team][self.sendWin_upper[Team] - 1]
@@ -250,12 +250,13 @@ class Peer:
             # received a DATA pkt
             self.peers[Team] = (*self.peers[Team][0:2], RECV)
             h = self.downloading[Team]
-            receiving_chunks[h] = receiving_chunks[h] + data
 
             # send back ACK
 
             if seq_num == self.expectedSeqNum[Team]:
+                receiving_chunks[h] = receiving_chunks[h] + data
                 self.expectedSeqNum[Team] += 1
+                self.dupACKcount = 1
                 ack_pkt = struct.pack(
                     SENDPKT,
                     socket.htons(MAGIC),
@@ -320,21 +321,24 @@ class Peer:
                     # else:
                     #     print("Example fails. Please check the example files carefully.")
             else:
-                ack_pkt = struct.pack(
-                    SENDPKT,
-                    socket.htons(MAGIC),
-                    self.team,
-                    ACK,
-                    socket.htons(HEADER_LEN),
-                    socket.htons(HEADER_LEN),
-                    socket.htonl(0),
-                    socket.htonl(self.expectedSeqNum[Team] - 1),
-                )
-                sock.sendto(ack_pkt, from_addr)
-                print(f"【dupACK】ack No.{self.expectedSeqNum[Team] - 1}")
+                self.dupACKcount += 1
+                if self.dupACKcount <= 4:
+                    ack_pkt = struct.pack(
+                        SENDPKT,
+                        socket.htons(MAGIC),
+                        self.team,
+                        ACK,
+                        socket.htons(HEADER_LEN),
+                        socket.htons(HEADER_LEN),
+                        socket.htonl(0),
+                        socket.htonl(self.expectedSeqNum[Team] - 1),
+                    )
+                    sock.sendto(ack_pkt, from_addr)
+                    print(f"【dupACK】ack No.{self.expectedSeqNum[Team] - 1}")
                 print("=================================")
 
         elif Type == ACK:
+            print(f"lower = {self.sendWin_lower[Team]}, upper = {self.sendWin_upper[Team]}")
             # TODO: 1. When get new ACK, congWin += 1.
             #       2. When get duplicated ACK, dupACKcount += 1.
             #       3. deal timeout
@@ -359,9 +363,12 @@ class Peer:
                 self.peers[Team] = (*self.peers[Team][0:2], DISCONNECTED)
 
             else:
-                if ack_num == self.sendWin_lower[Team]:
-                    self.sentWindow[Team].popleft()
-                    self.sendWin_lower[Team] += 1
+                if ack_num >= self.sendWin_lower[Team]:
+                    print("ack_num == sendWin_lower")
+                    self.sentWindow[Team] = self.sentWindow[Team][ack_num - self.sendWin_lower[Team] + 1:]
+                    # self.sendWin_lower[Team] += 1
+                    self.sendWin_lower[Team] = ack_num + 1
+                    self.dupACKcount[Team] = 1
 
                     # congection control
                     if self.congState[Team] == SLOW_START:
@@ -395,20 +402,23 @@ class Peer:
                     print("=================================")
                 else:
                     self.dupACKcount[Team] += 1
-                    if self.dupACKcount[Team] == 3:
+                    if self.dupACKcount[Team] == 4:
                         self.dupACKcount[Team] = 1
-                        retransmit = copy.deepcopy(self.sentWindow[Team])
                         # congection control
                         if self.congState[Team] == CONGECTION_AVOIDANCE:
-                            self.ssthreshold[Team] = max(math.floor(self.congWinSize[Team] / 2) , 2)
+                            self.ssthreshold[Team] = max(math.floor(self.congWinSize[Team] / 2), 2)
                             self.congState[Team] = SLOW_START
                         else:
-                            self.ssthreshold[Team] = max(math.floor(self.congWinSize[Team]),2)
+                            self.ssthreshold[Team] = max(math.floor(self.congWinSize[Team] / 2), 2)
                         self.congWinSize[Team] = 1
+                        self.sendWin_upper[Team] = self.sendWin_lower[Team] + self.congWinSize[Team]
+                        self.sentWindow[Team] = self.sentWindow[Team][:self.congWinSize[Team]]
+                        print(f"self.congWinSize={self.congWinSize}")
                         # fast retransmit
+                        retransmit = copy.deepcopy(self.sentWindow[Team])
                         while retransmit:
                             # sock.sendto(peer.sentWindow[0][3], (dest[1], int(dest[2])))
-                            retransmit_pkt = retransmit.popleft()
+                            retransmit_pkt = retransmit.pop(0)
                             sock.sendto(retransmit_pkt, from_addr)
                             print(
                                 f"【Retransmit: because of dupACK】send data No.{socket.ntohl(struct.unpack(RECVPKT, retransmit_pkt[:HEADER_LEN])[5])}"
@@ -523,10 +533,17 @@ def peer_run(configuration):
                         and time() - peer.rdt_timer[team] > RDT_TIMEOUT
                     ):
                         print("first time out")
+                        
+                        if peer.congState == CONGECTION_AVOIDANCE:
+                            peer.congState = SLOW_START
+                        peer.ssthreshold[team] = max(math.floor(peer.congWinSize[team] / 2), 2)
+                        peer.congWinSize[team] = 1
+                        peer.sendWin_upper[team] = peer.sendWin_lower[team] + peer.congWinSize[team]
+                        peer.sentWindow[team] = peer.sentWindow[team][:peer.congWinSize[team]]
                         retransmit = copy.deepcopy(peer.sentWindow[team])
                         while retransmit:
                             # sock.sendto(peer.sentWindow[0][3], (dest[1], int(dest[2])))
-                            retransmit_pkt = retransmit.popleft()
+                            retransmit_pkt = retransmit.pop(0)
                             sock.sendto(
                                 retransmit_pkt,
                                 (peer.peers[team][0], int(peer.peers[team][1])),
