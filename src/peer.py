@@ -9,6 +9,7 @@ import sys
 import os
 from time import time
 import copy
+import math
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from util import bt_utils
@@ -24,8 +25,6 @@ MAGIC = 52305
 HASHLEN = 40
 SENDPKT = ">HBBHHII"
 RECVPKT = ">HBBHHII"
-TIMEOUT = 3
-SEND_WINDOW_SIZE = 10
 RDT_TIMEOUT = 3
 
 # packet types
@@ -43,6 +42,9 @@ HANDSHAKE = 0
 SEND = 1
 RECV = 2
 
+# congection control state
+SLOW_START = 0
+CONGECTION_AVOIDANCE = 1
 
 receiving_chunks = {}
 
@@ -80,9 +82,11 @@ class Peer:
         self.rdt_timer = {}
         self.GET_timer = {}
         # ==========congestion control: GBN protocol==========
-        self.congWin = 1  # congestion Window, initialized to 1
-        self.ssthreshold = 64  # congestion threshold
-        self.dupACKcount = {}  # duplicate ACK
+        self.congWinSize = {}                   # congestion Window, initialized to 1
+        self.ssthreshold = {}               # congestion threshold
+        self.dupACKcount = {}                # duplicate ACK
+        self.congState = {}         # default state: slow start
+        first_timeout = {int(n): False for n, _, _ in configuration.peers}
 
         self.first_timeout = {int(n): False for n, _, _ in configuration.peers}
 
@@ -205,19 +209,17 @@ class Peer:
             print(f"send_chunk_checksum = {send_chunk_checksum}")
 
             # init sendBuffer, sendWindow
-            self.sendBuffer[Team] = [
-                self.haschunks[send_chunk_checksum][
-                    i * MAX_PAYLOAD : (i + 1) * MAX_PAYLOAD
-                ]
-                for i in range(512)
-            ]
-            self.sendWin_lower.update({Team: 1})
-            self.sendWin_upper.update({Team: 1})
-            self.sentWindow.update({Team: deque()})
-            self.dupACKcount.update({Team: 1})
-            while (
-                self.sendWin_upper[Team] < self.sendWin_lower[Team] + SEND_WINDOW_SIZE
-            ):
+            self.sendBuffer[Team] = [self.haschunks[send_chunk_checksum][i*MAX_PAYLOAD: (i+1)*MAX_PAYLOAD] for i in range(512)]
+            self.sendWin_lower[Team] = 1
+            self.sendWin_upper[Team] = 1
+            self.sentWindow[Team] = deque()
+            self.dupACKcount[Team] = 1
+            # init congection controller
+            self.congWinSize[Team] = 1
+            self.congState[Team] = SLOW_START
+            self.ssthreshold[Team] = 1024
+
+            while self.sendWin_upper[Team] < self.sendWin_lower[Team] + self.congWinSize[Team]:
                 chunk_data = self.sendBuffer[Team][self.sendWin_upper[Team] - 1]
                 data_header = struct.pack(
                     SENDPKT,
@@ -360,6 +362,15 @@ class Peer:
                 if ack_num == self.sendWin_lower[Team]:
                     self.sentWindow[Team].popleft()
                     self.sendWin_lower[Team] += 1
+
+                    # congection control
+                    if self.congState[Team] == SLOW_START:
+                        self.congWinSize[Team] += 1
+                    else:
+                        self.congWinSize[Team] += 1 / self.congWinSize[Team]
+                    if self.congWinSize[Team] >= self.ssthreshold[Team]:
+                        self.congState[Team] = CONGECTION_AVOIDANCE
+
                     # send next data
                     if self.sendWin_upper[Team] <= 512:
                         next_data = self.sendBuffer[Team][self.sendWin_upper[Team] - 1]
@@ -383,9 +394,17 @@ class Peer:
                         self.sendWin_upper[Team] += 1
                 else:
                     self.dupACKcount[Team] += 1
-                    if self.dupACKcount == 3:
+                    if self.dupACKcount[Team] == 3:
                         self.dupACKcount[Team] = 1
                         retransmit = copy.deepcopy(self.sentWindow[Team])
+                        # congection control
+                        if self.congState[Team] == CONGECTION_AVOIDANCE:
+                            self.ssthreshold[Team] = max(math.floor(self.congWinSize[Team] / 2) , 2)
+                            self.congState[Team] = SLOW_START
+                        else:
+                            self.ssthreshold[Team] = max(math.floor(self.congWinSize[Team]),2)
+                        self.congWinSize[Team] = 1
+                        # fast retransmit
                         while retransmit:
                             # sock.sendto(peer.sentWindow[0][3], (dest[1], int(dest[2])))
                             retransmit_pkt = retransmit.popleft()
