@@ -370,7 +370,8 @@ class Peer:
                         self.congState[Team] = CONGECTION_AVOIDANCE
 
                     # send next data
-                    if self.sendWin_upper[Team] <= 512:
+                    self.rdt_timer[Team] = time()
+                    while self.sendWin_upper[Team] <= 512 and self.sendWin_upper[Team] < self.sendWin_lower[Team] + self.congWinSize[Team]:
                         next_data = self.sendBuffer[Team][self.sendWin_upper[Team] - 1]
                         data_header = struct.pack(
                             SENDPKT,
@@ -385,11 +386,12 @@ class Peer:
                         next_data_pkt = data_header + next_data
                         self.sentWindow[Team].append(next_data_pkt)
                         sock.sendto(next_data_pkt, from_addr)
-                        self.rdt_timer[Team] = time()
+                        
                         print(f'send next data No.{self.sendWin_upper[Team]}')
-                        print("=================================")
+                        
                         
                         self.sendWin_upper[Team] += 1
+                    print("=================================")
                 else:
                     self.dupACKcount[Team] += 1
                     if self.dupACKcount[Team] == 3:
