@@ -45,8 +45,6 @@ RECV = 2
 
 
 receiving_chunks = {}
-# indicate whether the user have instructed to download
-download_instruction = False
 
 
 class Peer:
@@ -61,7 +59,7 @@ class Peer:
         # [checksum of chunks to be downloaded], records the data that should be downloaded later
         self.demand = []
         # [(team number, ip, port, state)], records the address of other peers
-        self.peers = {int(n) : (i, p, DISCONNECTED) for n, i, p in configuration.peers}
+        self.peers = {int(n): (i, p, DISCONNECTED) for n, i, p in configuration.peers}
         # {checksum(bytes) : data}, records the data that this peer already has
         self.haschunks = {
             bytes(x, "ascii"): config.haschunks[x] for x in config.haschunks
@@ -71,19 +69,22 @@ class Peer:
         self.team = configuration.identity
         self.maxconn = configuration.max_conn
         # ==========reliable data transmit==========
-        self.sendBuffer = {}                # {team number : checksum}, records the data that is being sent to peers
-        self.sentWindow = {}                # {team: packet}
-        self.sendWin_lower = {}              # lower edge of sendWindow
-        self.sendWin_upper = {}              # upper edge of sendWindow
+        self.sendBuffer = (
+            {}
+        )  # {team number : checksum}, records the data that is being sent to peers
+        self.sentWindow = {}  # {team: packet}
+        self.sendWin_lower = {}  # lower edge of sendWindow
+        self.sendWin_upper = {}  # upper edge of sendWindow
         self.recvBuffer = {}
         self.expectedSeqNum = {}
         self.rdt_timer = {}
         self.GET_timer = {}
         # ==========congestion control: GBN protocol==========
-        self.congWin = 1                    # congestion Window, initialized to 1
-        self.ssthreshold = 64               # congestion threshold
-        self.dupACKcount = {}                # duplicate ACK
+        self.congWin = 1  # congestion Window, initialized to 1
+        self.ssthreshold = 64  # congestion threshold
+        self.dupACKcount = {}  # duplicate ACK
 
+        self.first_timeout = {int(n): False for n, _, _ in configuration.peers}
 
     def constr_packet(self, packet_type, seq, ack, data: bytes):
         # |2byte magic|1byte team|1byte type|
@@ -146,13 +147,15 @@ class Peer:
         # Receive pkt
         pkt, from_addr = sock.recvfrom(BUF_SIZE)
         _, Team, Type, hlen, plen, Seq, Ack = struct.unpack(RECVPKT, pkt[:HEADER_LEN])
-        hlen = socket.ntohs(hlen)   # head length
-        plen = socket.ntohs(plen)   # pkt length
-        dlen = plen - hlen          # data length
-        data = pkt[hlen:]           # data containt
+        hlen = socket.ntohs(hlen)  # head length
+        plen = socket.ntohs(plen)  # pkt length
+        dlen = plen - hlen  # data length
+        data = pkt[hlen:]  # data containt
         seq_num = socket.ntohl(Seq)
         ack_num = socket.ntohl(Ack)
-        print(f"received {pkt_types[Type]} pkt: [from team: {Team}; head length: {hlen}; data length: {dlen}; seq: {seq_num}; ack: {ack_num};")
+        print(
+            f"received {pkt_types[Type]} pkt: [from team: {Team}; head length: {hlen}; data length: {dlen}; seq: {seq_num}; ack: {ack_num};"
+        )
         if Type == WHOHAS:
             # received an WHOHAS pkt
             # see what chunk the sender has
@@ -192,7 +195,7 @@ class Peer:
             print(f"Team {Team} has: {get_chunk_hash_list}")
             print("=================================")
             # change the state to HANDSHAKE
-            
+
             self.peers[Team] = (*self.peers[Team][0:2], HANDSHAKE)
         elif Type == GET:
             # 当发送端收到GET请求时，就初始化sendBuffer，并且发送第一个DATA包
@@ -202,12 +205,19 @@ class Peer:
             print(f"send_chunk_checksum = {send_chunk_checksum}")
 
             # init sendBuffer, sendWindow
-            self.sendBuffer[Team] = [self.haschunks[send_chunk_checksum][i*MAX_PAYLOAD: (i+1)*MAX_PAYLOAD] for i in range(512)]
-            self.sendWin_lower.update({Team:1})
-            self.sendWin_upper.update({Team:1})
+            self.sendBuffer[Team] = [
+                self.haschunks[send_chunk_checksum][
+                    i * MAX_PAYLOAD : (i + 1) * MAX_PAYLOAD
+                ]
+                for i in range(512)
+            ]
+            self.sendWin_lower.update({Team: 1})
+            self.sendWin_upper.update({Team: 1})
             self.sentWindow.update({Team: deque()})
             self.dupACKcount.update({Team: 1})
-            while self.sendWin_upper[Team] < self.sendWin_lower[Team] + SEND_WINDOW_SIZE:
+            while (
+                self.sendWin_upper[Team] < self.sendWin_lower[Team] + SEND_WINDOW_SIZE
+            ):
                 chunk_data = self.sendBuffer[Team][self.sendWin_upper[Team] - 1]
                 data_header = struct.pack(
                     SENDPKT,
@@ -223,9 +233,7 @@ class Peer:
                 self.sentWindow[Team].append(data_pkt)
                 sock.sendto(data_pkt, from_addr)
 
-                print(f'Send DATA pkt in sendBuffer No.{self.sendWin_upper[Team]}')
-                
-                
+                print(f"Send DATA pkt in sendBuffer No.{self.sendWin_upper[Team]}")
 
                 if self.sendWin_lower[Team] == self.sendWin_upper[Team]:
                     self.rdt_timer[Team] = time()
@@ -235,9 +243,10 @@ class Peer:
             # change the state to SEND
             self.peers[Team] = (*self.peers[Team][0:2], SEND)
             print("=================================")
-        
+
         elif Type == DATA:
             # received a DATA pkt
+            self.peers[Team] = (*self.peers[Team][0:2], RECV)
             h = self.downloading[Team]
             receiving_chunks[h] = receiving_chunks[h] + data
 
@@ -252,14 +261,14 @@ class Peer:
                     ACK,
                     socket.htons(HEADER_LEN),
                     socket.htons(HEADER_LEN),
-                    socket.htonl(0),  #Seq
-                    socket.htonl(seq_num),  #Ack
+                    socket.htonl(0),  # Seq
+                    socket.htonl(seq_num),  # Ack
                 )
-                # GET收到DATA，关闭计时器
-                self.GET_timer[Team] = None
-                
+                # GET收到DATA，更新计时器
+                self.GET_timer[Team] = time()
+
                 sock.sendto(ack_pkt, from_addr)
-                print(f'send ACK pkt: ack: {seq_num}')
+                print(f"send ACK pkt: ack: {seq_num}")
                 # see if finished
                 print(
                     f"In process_inbound_udp:DATA: len(receiving_chunks[h]) = {len(receiving_chunks[h])}"
@@ -281,7 +290,8 @@ class Peer:
                     # dump your received chunk to file in dict form using pickle
                     if len(self.downloading) == 0:
                         received = {
-                            str(i, "ascii"): receiving_chunks[i] for i in receiving_chunks
+                            str(i, "ascii"): receiving_chunks[i]
+                            for i in receiving_chunks
                         }
                         with open(self.ex_output_file, "wb") as wf:
                             pickle.dump(received, wf)
@@ -319,12 +329,12 @@ class Peer:
                     socket.htonl(self.expectedSeqNum[Team] - 1),
                 )
                 sock.sendto(ack_pkt, from_addr)
-                print(f'【dupACK】ack No.{self.expectedSeqNum[Team] - 1}')
+                print(f"【dupACK】ack No.{self.expectedSeqNum[Team] - 1}")
                 print("=================================")
 
         elif Type == ACK:
-            # TODO: 1. When get new ACK, congWin += 1. 
-            #       2. When get duplicated ACK, dupACKcount += 1. 
+            # TODO: 1. When get new ACK, congWin += 1.
+            #       2. When get duplicated ACK, dupACKcount += 1.
             #       3. deal timeout
             #       4. deal dupACKcount
             #       5. deal congWin > ssthreshold
@@ -336,15 +346,16 @@ class Peer:
             #     if v[1] + 1 == ack_num and v[2] == Team
             # )
             # self.sentWindow.pop(idx)
-            
+
             # received an ACK pkt
+            self.first_timeout[Team] = False
             if ack_num * MAX_PAYLOAD >= CHUNK_DATA_SIZE:
                 # finished
                 print(f"finished sending!!")
                 print("=================================")
                 # change the state to DISCONNECTED
                 self.peers[Team] = (*self.peers[Team][0:2], DISCONNECTED)
-            
+
             else:
                 if ack_num == self.sendWin_lower[Team]:
                     self.sentWindow[Team].popleft()
@@ -366,9 +377,9 @@ class Peer:
                         self.sentWindow[Team].append(next_data_pkt)
                         sock.sendto(next_data_pkt, from_addr)
                         self.rdt_timer[Team] = time()
-                        print(f'send next data No.{self.sendWin_upper[Team]}')
+                        print(f"send next data No.{self.sendWin_upper[Team]}")
                         print("=================================")
-                        
+
                         self.sendWin_upper[Team] += 1
                 else:
                     self.dupACKcount[Team] += 1
@@ -379,7 +390,9 @@ class Peer:
                             # sock.sendto(peer.sentWindow[0][3], (dest[1], int(dest[2])))
                             retransmit_pkt = retransmit.popleft()
                             sock.sendto(retransmit_pkt, from_addr)
-                            print(f'【Retransmit: because of dupACK】send data No.{socket.ntohl(struct.unpack(RECVPKT, retransmit_pkt[:HEADER_LEN])[5])}')
+                            print(
+                                f"【Retransmit: because of dupACK】send data No.{socket.ntohl(struct.unpack(RECVPKT, retransmit_pkt[:HEADER_LEN])[5])}"
+                            )
                         self.rdt_timer[Team] = time()
                         print("=================================")
         elif Type == DENIED:
@@ -406,7 +419,7 @@ class Peer:
 
     def get(self, sock):
         # randomly choose peers for desired chunks, send GET
-        for d in self.demand:   # d: chunkhash
+        for d in self.demand:  # d: chunkhash
             for team in self.peerchunks:
                 if self.peers[team][2] == HANDSHAKE and d in self.peerchunks[team]:
                     # change the state to RECV
@@ -423,11 +436,14 @@ class Peer:
                     # init receiver parameter
                     self.expectedSeqNum[team] = 1
                     self.GET_timer[team] = time()
-                    sock.sendto(get_pkt, (self.peers[team][0], int(self.peers[team][1])))
+                    sock.sendto(
+                        get_pkt, (self.peers[team][0], int(self.peers[team][1]))
+                    )
                     # self.sentWindow.append((time(), 0, p, get_pkt))
                     print(f"send GET to {team} for {d}")
                     print("=================================")
         # TODO: DISCONNECT OTHERS
+
 
 def peer_run(configuration):
     addr = (configuration.ip, configuration.port)
@@ -451,17 +467,62 @@ def peer_run(configuration):
                     peer.broadcast(sock)
                     peer.get(sock)
                 for team in peer.peers:
+                    if peer.first_timeout[team] and (
+                        (
+                            team in peer.rdt_timer.keys()
+                            and time() - peer.rdt_timer[team] > RDT_TIMEOUT
+                        )
+                        or (
+                            team in peer.GET_timer.keys()
+                            and time() - peer.GET_timer[team] > RDT_TIMEOUT
+                        )
+                    ):
+                        print("second time out")
+                        # change the state to DISCONNECTED
+                        peer.peers[team] = (*peer.peers[team][0:2], DISCONNECTED)
+                        peer.first_timeout[team] = False
+                        # discard the incomplete data in receiving_chunks
+                        if team in peer.GET_timer.keys():
+                            peer.GET_timer.pop(team)
+                            print(f"peer.downloading={peer.downloading}")
+                            receiving_chunks[peer.downloading[team]] = bytes()
+                            peer.expectedSeqNum.pop(team)
+                        elif team in peer.rdt_timer.keys():
+                            peer.rdt_timer.pop(team)
+                            peer.sendBuffer.pop(team)
+                            peer.sendWin_lower.pop(team)
+                            peer.sendWin_upper.pop(team)
+                            peer.sentWindow.pop(team)
+                        # delete the downloading chunk from peer.downloading and add it back to peer.demand
+                        peer.demand.append(peer.downloading.pop(team))
+                        peer.initial_download(sock, chunkf, outf)
 
-                    if peer.peers[team][2]==SEND and peer.sentWindow[team] and time() - peer.rdt_timer[team] > RDT_TIMEOUT:
-                        
+                    if (
+                        peer.peers[team][2] == SEND
+                        and peer.sentWindow[team]
+                        and time() - peer.rdt_timer[team] > RDT_TIMEOUT
+                    ):
+                        print("first time out")
                         retransmit = copy.deepcopy(peer.sentWindow[team])
                         while retransmit:
                             # sock.sendto(peer.sentWindow[0][3], (dest[1], int(dest[2])))
                             retransmit_pkt = retransmit.popleft()
-                            sock.sendto(retransmit_pkt,(peer.peers[team][0], int(peer.peers[team][1])))
-                            print(f'【Retransmit because of timeout】send data No.{socket.ntohl(struct.unpack(RECVPKT, retransmit_pkt[:HEADER_LEN])[5])}')
+                            sock.sendto(
+                                retransmit_pkt,
+                                (peer.peers[team][0], int(peer.peers[team][1])),
+                            )
+                            print(
+                                f"【Retransmit because of timeout】send data No.{socket.ntohl(struct.unpack(RECVPKT, retransmit_pkt[:HEADER_LEN])[5])}"
+                            )
                         print("=================================")
-                 
+
+                    if (
+                        peer.peers[team][2] == RECV
+                        and time() - peer.GET_timer[team] > RDT_TIMEOUT
+                    ):
+                        print("first time out")
+                        peer.first_timeout[team] = True
+
     except KeyboardInterrupt:
         pass
     finally:
