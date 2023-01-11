@@ -388,9 +388,8 @@ class Peer:
                         next_data_pkt = data_header + next_data
                         self.sentWindow[Team].append(next_data_pkt)
                         sock.sendto(next_data_pkt, from_addr)
-                        self.rdt_timer[Team] = time()
+                        
                         print(f"send next data No.{self.sendWin_upper[Team]}")
-                        print("=================================")
 
                         self.sendWin_upper[Team] += 1
                     print("=================================")
