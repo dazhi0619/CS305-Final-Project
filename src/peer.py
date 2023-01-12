@@ -1,6 +1,10 @@
 import pickle
 import argparse
 
+## plot
+# import numpy as np
+# import matplotlib.pyplot as plt
+
 #=======================import hashlib=======================
 import socket
 import struct
@@ -98,6 +102,10 @@ class Peer:
         self.first_timeout = {int(n): False for n, _, _ in configuration.peers}
         globals()['RDT_TIMEOUT'] = configuration.timeout
 
+        ## plot
+        # self.congWinSizeChange = {}
+        # self.globelTimer = time()
+
     def constr_packet(self, packet_type, seq, ack, data: bytes):
         # |2byte magic|1byte team|1byte type|
         # |2byte  header len  |2byte pkt len |
@@ -165,7 +173,7 @@ class Peer:
         data = pkt[hlen:]           # data containt
         seq_num = socket.ntohl(Seq)
         ack_num = socket.ntohl(Ack)
-        print(f"received {pkt_types[Type]} pkt: [from team: {Team}; head length: {hlen}; data length: {dlen}; seq: {seq_num}; ack: {ack_num};")
+        # print(f"received {pkt_types[Type]} pkt: [from team: {Team}; head length: {hlen}; data length: {dlen}; seq: {seq_num}; ack: {ack_num};")
 
         if Type == WHOHAS:
             # received an WHOHAS pkt
@@ -179,10 +187,10 @@ class Peer:
                 if whohas_chunk_hash not in whohas_chunk_hash_list:
                     whohas_chunk_hash_list.append(whohas_chunk_hash)
 
-            print(f"has: {list(self.haschunks.keys())}")
+            # print(f"has: {list(self.haschunks.keys())}")
             ihave_pkt_list = [h for h in whohas_chunk_hash_list if h in self.haschunks]
-            print(f"ihave_pkt_list = {ihave_pkt_list}")
-            print("=================================")
+            # print(f"ihave_pkt_list = {ihave_pkt_list}")
+            # print("=================================")
             if len(self.sendBuffer) < MAX_PAYLOAD and ihave_pkt_list:
                 # send back IHAVE pkt
                 ihave_pkt = self.constr_ihave(ihave_pkt_list)
@@ -205,18 +213,21 @@ class Peer:
                 i += HASHLEN
                 get_chunk_hash_list.append(get_chunk_hash)
             self.peerchunks.update({Team: get_chunk_hash_list})
-            print(f"Team {Team} has: {get_chunk_hash_list}")
-            print("=================================")
+            # print(f"Team {Team} has: {get_chunk_hash_list}")
+            # print("=================================")
             # change the state to HANDSHAKE
             if self.peers[Team][2] != RECV:
                 self.peers[Team] = (*self.peers[Team][0:2], HANDSHAKE)
 
         elif Type == GET:
+            ## plot
+            # self.congWinSizeChange[Team] = []
+
             # 当发送端收到GET请求时，就初始化sendBuffer，并且发送第一个DATA包
-            print(f"receive get from peer {Team}")
+            # print(f"receive get from peer {Team}")
             # received a GET pkt
             send_chunk_checksum = data[:HASHLEN]
-            print(f"send_chunk_checksum = {send_chunk_checksum}")
+            # print(f"send_chunk_checksum = {send_chunk_checksum}")
 
             # init sendBuffer, sendWindow
             self.sendBuffer[Team] = [self.haschunks[send_chunk_checksum][i*MAX_PAYLOAD: (i+1)*MAX_PAYLOAD] for i in range(512)]
@@ -228,7 +239,7 @@ class Peer:
             # init congection controller
             self.congWinSize[Team] = 1
             self.congState[Team] = SLOW_START
-            self.ssthreshold[Team] = 512
+            self.ssthreshold[Team] = 128
 
             while self.sendWin_upper[Team] < self.sendWin_lower[Team] + self.congWinSize[Team]:
                 chunk_data = self.sendBuffer[Team][self.sendWin_upper[Team] - 1]
@@ -246,14 +257,14 @@ class Peer:
                 self.sentWindow[Team].append(data_pkt)
                 sock.sendto(data_pkt, from_addr)
 
-                print(f'Send DATA pkt in sendBuffer No.{self.sendWin_upper[Team]}')
+                # print(f'Send DATA pkt in sendBuffer No.{self.sendWin_upper[Team]}')
                 if self.sendWin_lower[Team] == self.sendWin_upper[Team]:
                     self.rdt_timer[Team] = time()
 
                 self.sendWin_upper[Team] += 1
             # change the state to SEND
             self.peers[Team] = (*self.peers[Team][0:2], SEND)
-            print("=================================")
+            # print("=================================")
         
         elif Type == DATA:
             # received a DATA pkt
@@ -283,27 +294,27 @@ class Peer:
                 self.GET_timer[Team] = time()
                 
                 sock.sendto(ack_pkt, from_addr)
-                print(f'send ACK pkt: ack: {seq_num}')
+                # print(f'send ACK pkt: ack: {seq_num}')
                 # see if finished
-                print(
-                    f"In process_inbound_udp:DATA: len(receiving_chunks[h]) = {len(receiving_chunks[h])}"
-                )
-                print("=================================")
+                # print(
+                #     f"In process_inbound_udp:DATA: len(receiving_chunks[h]) = {len(receiving_chunks[h])}"
+                # )
+                # print("=================================")
                 if len(receiving_chunks[self.downloading[Team]]) == CHUNK_DATA_SIZE:
                     # add to this peer's haschunk:
                     self.haschunks[self.downloading[Team]] = receiving_chunks[
                         self.downloading[Team]
                     ]
-                    print(
-                        f"Team = {Team}, self.downloading = {self.downloading[Team]}, self.demand = {self.demand}"
-                    )
+                    # print(
+                    #     f"Team = {Team}, self.downloading = {self.downloading[Team]}, self.demand = {self.demand}"
+                    # )
 
                     # delete the chunk from self.downloading
                     self.downloading.pop(Team)
 
                     # finished downloading this chunkdata!
                     # dump your received chunk to file in dict form using pickle
-                    if len(self.downloading) == 0:
+                    if len(self.downloading) == 0 and len(self.demand) == 0:
                         received = {
                             str(i, "ascii"): receiving_chunks[i]
                             for i in receiving_chunks
@@ -312,7 +323,7 @@ class Peer:
                             pickle.dump(received, wf)
                         # you need to print "GOT" when finished downloading all chunks in a DOWNLOAD file
                         print(f"GOT {self.ex_output_file}")
-                        print("=================================")
+                        # print("=================================")
 
                     # change the state to DISCONNECTED
                     self.peers[Team] = (*self.peers[Team][0:2], DISCONNECTED)
@@ -344,22 +355,23 @@ class Peer:
                     socket.htonl(self.expectedSeqNum[Team] - 1),
                 )
                 sock.sendto(ack_pkt, from_addr)
-                print(f'【dupACK】ack No.{self.expectedSeqNum[Team] - 1}')
-                print("=================================")
+                # print(f'【dupACK】ack No.{self.expectedSeqNum[Team] - 1}')
+                # print("=================================")
 
         elif Type == ACK:
             # received an ACK pkt
             self.first_timeout[Team] = False
             if ack_num * MAX_PAYLOAD >= CHUNK_DATA_SIZE:
                 # finished
-                print(f"finished sending!!")
-                print("=================================")
+                # print(f"finished sending!!")
+                # print("=================================")
                 # change the state to DISCONNECTED
                 self.peers[Team] = (*self.peers[Team][0:2], DISCONNECTED)
             
             else:
+                # print(f"ack_num = {ack_num}, self.sendWin_lower[Team] = {self.sendWin_lower[Team]}")
                 if ack_num >= self.sendWin_lower[Team]:
-                    print(f'确认收到的包: {ack_num}')
+                    # print(f'确认收到的包: {ack_num}')
                     self.sentWindow[Team] = self.sentWindow[Team][ack_num - self.sendWin_lower[Team] + 1:]
                     self.sendWin_lower[Team] = ack_num + 1
                     self.dupACKcount[Team] = 1
@@ -367,17 +379,22 @@ class Peer:
                     # congection control
                     if self.congState[Team] == SLOW_START:
                         self.congWinSize[Team] += 1
+                        # print(f"slow start: conwinsize[team] = {self.congWinSize[Team]}")
                     else:
                         self.congWinSize[Team] += 1 / self.congWinSize[Team]
+                        # print(f"congestion avoidance: conwinsize[team] = {self.congWinSize[Team]}")
                     if self.congWinSize[Team] >= self.ssthreshold[Team]:
                         self.congState[Team] = CONGECTION_AVOIDANCE
+                    
+                    ## plot
+                    # self.congWinSizeChange[Team].append([round(time() - self.globelTimer, 2),round(self.congWinSize[Team],2)])
                         
                     # send next data
                     self.rdt_timer[Team] = time()
                     # print(f'lower: {self.sendWin_lower}, upper: {self.sendWin_upper}')
                     while self.sendWin_upper[Team] <= 512 and self.sendWin_upper[Team] < self.sendWin_lower[Team] + self.congWinSize[Team]:
-                            next_data = self.sendBuffer[Team][self.sendWin_upper[Team] - 1]
-                            print(f'已经发出去的包：{self.sendWin_upper[Team]}')
+                            next_data = self.sendBuffer[Team][int(self.sendWin_upper[Team] - 1)]
+                            # print(f'已经发出去的包：{self.sendWin_upper[Team]}')
                             
                             data_header = struct.pack(
                                 SENDPKT,
@@ -392,33 +409,39 @@ class Peer:
                             next_data_pkt = data_header + next_data
                             self.sentWindow[Team].append(next_data_pkt)
                             sock.sendto(next_data_pkt, from_addr)
-                            print(f'send next data No.{self.sendWin_upper[Team]}')
+                            # print(f'send next data No.{self.sendWin_upper[Team]}')
                             self.sendWin_upper[Team] += 1
-                    print("=================================")
+                    # print("=================================")
                         
                         
                 else:
                     self.dupACKcount[Team] += 1
                     if self.dupACKcount[Team] == 4:
-                        # congection control
-                        if self.congState[Team] == CONGECTION_AVOIDANCE:
-                            self.congState[Team] = SLOW_START
+                        # if self.congState[Team] == CONGECTION_AVOIDANCE:
+                        #     self.congState[Team] = SLOW_START
+                        # self.ssthreshold[Team] = max(math.floor(self.congWinSize[Team] / 2), 2)
+                        # self.congWinSize[Team] = 1
+                        # self.sentWindow[Team] = self.sentWindow[Team][:1]
+                        # self.sendWin_upper[Team] = self.sendWin_lower[Team] + 1
                         
-                        self.ssthreshold[Team] = max(math.floor(self.congWinSize[Team] / 2), 2)
-                        self.congWinSize[Team] = 1
+                        if self.congState[Team] == SLOW_START:
+                            self.congState[Team] = CONGECTION_AVOIDANCE
+                        self.congWinSize[Team] = self.congWinSize[Team] / 2
+                        self.ssthreshold[Team] = self.congWinSize[Team]
+                        self.sentWindow[Team] = self.sentWindow[Team][:int(self.congWinSize[Team])]
+                        self.sendWin_upper[Team] = self.sendWin_lower[Team] + int(self.congWinSize[Team])
 
-                        self.sentWindow[Team] = self.sentWindow[Team][:1]
-                        self.sendWin_upper[Team] = self.sendWin_lower[Team] + 1
+                        ## plot
+                        # self.congWinSizeChange[Team].append([round(time() - self.globelTimer, 2),round(self.congWinSize[Team],2)])
                         
                         retransmit = copy.deepcopy(self.sentWindow[Team])
-                        
-                        # sock.sendto(peer.sentWindow[0][3], (dest[1], int(dest[2])))
-                        retransmit_pkt = retransmit.pop(0)
-                        sock.sendto(retransmit_pkt, from_addr)
-                        print(f'【Retransmit: because of dupACK】send data No.{socket.ntohl(struct.unpack(RECVPKT, retransmit_pkt[:HEADER_LEN])[5])}')
+                        while retransmit:
+                            retransmit_pkt = retransmit.pop(0)
+                            sock.sendto(retransmit_pkt, from_addr)
                         self.rdt_timer[Team] = time()
-                        print(f'已经发出去的包：{self.sendWin_lower[Team]}')
-                        print("=================================")
+                        # print(f'【Retransmit: because of dupACK】send data No.{socket.ntohl(struct.unpack(RECVPKT, retransmit_pkt[:HEADER_LEN])[5])}')
+                        # print(f'已经发出去的包：{self.sendWin_lower[Team]}')
+                        # print("=================================")
         elif Type == DENIED:
             # received an DENIED pkt
             pass
@@ -429,13 +452,15 @@ class Peer:
     def process_user_input(self, sock):
         global chunkf
         global outf
-        command, chunkf, outf = input().split(" ")
-        if command == "DOWNLOAD":
-            self.initial_download(sock, chunkf, outf)
-        else:
+        try:
+            command, chunkf, outf = input().split(" ")
+            if command == "DOWNLOAD":
+                self.initial_download(sock, chunkf, outf)
+        except ValueError:
             pass
 
     def broadcast(self, sock):
+        # print(f"broadcast whohas")
         whohas_pkt = self.constr_whohas(self.demand)
         for p in self.peers:
             if p != self.team and self.peers[p][2] != RECV:
@@ -458,8 +483,8 @@ class Peer:
                     self.GET_timer[team] = time()
                     sock.sendto(get_pkt, (self.peers[team][0], int(self.peers[team][1])))
                     # self.sentWindow.append((time(), 0, p, get_pkt))
-                    print(f"send GET to {team} for {d}")
-                    print("=================================")
+                    # print(f"send GET to {team} for {d}")
+                    # print("=================================")
         
         for team in self.peers:
             if self.peers[team][2] == HANDSHAKE:
@@ -498,14 +523,14 @@ def peer_run(configuration):
                             and time() - peer.GET_timer[team] > RDT_TIMEOUT
                         )
                     ):
-                        print("second time out")
+                        # print("second time out")
                         # change the state to DISCONNECTED
                         peer.peers[team] = (*peer.peers[team][0:2], DISCONNECTED)
                         peer.first_timeout[team] = False
                         # discard the incomplete data in receiving_chunks
                         if team in peer.GET_timer.keys():
                             peer.GET_timer.pop(team)
-                            print(f"peer.downloading={peer.downloading}")
+                            # print(f"peer.downloading={peer.downloading}")
                             receiving_chunks[peer.downloading[team]] = bytes()
                             peer.expectedSeqNum.pop(team)
                         elif team in peer.rdt_timer.keys():
@@ -523,24 +548,28 @@ def peer_run(configuration):
                         and peer.sentWindow[team]
                         and time() - peer.rdt_timer[team] > RDT_TIMEOUT
                     ):
-                        print("first time out")
+                        # print("first time out")
 
                         if peer.congState == CONGECTION_AVOIDANCE:
                             peer.congState = SLOW_START
                         peer.ssthreshold[team] = max(math.floor(peer.congWinSize[team] / 2), 2)
                         peer.congWinSize[team] = 1
                         peer.sentWindow[team] = peer.sentWindow[team][:1]
+
+                        ## plot
+                        # peer.congWinSizeChange[team].append([round(time() - peer.globelTimer, 2),round(peer.congWinSize[team],2)])
+
                         retransmit = copy.deepcopy(peer.sentWindow[team])
                         retransmit_pkt = retransmit.pop(0)
                         sock.sendto(retransmit_pkt,(peer.peers[team][0], int(peer.peers[team][1])))
-                        print(f'【Retransmit because of timeout】send data No.{socket.ntohl(struct.unpack(RECVPKT, retransmit_pkt[:HEADER_LEN])[5])}')
-                        print("=================================")
+                        # print(f'【Retransmit because of timeout】send data No.{socket.ntohl(struct.unpack(RECVPKT, retransmit_pkt[:HEADER_LEN])[5])}')
+                        # print("=================================")
                  
                     if (
                         peer.peers[team][2] == RECV
                         and team in peer.GET_timer.keys() and time() - peer.GET_timer[team] > RDT_TIMEOUT
                     ):
-                        print("first time out")
+                        # print("first time out")
                         peer.first_timeout[team] = True
 
     except KeyboardInterrupt:
