@@ -182,7 +182,6 @@ class Peer:
             i = 0
             while i < dlen:
                 whohas_chunk_hash = data[i : i + HASHLEN]
-                # print(f"whohas_chunk_hash = {whohas_chunk_hash}")
                 i += HASHLEN
                 if whohas_chunk_hash not in whohas_chunk_hash_list:
                     whohas_chunk_hash_list.append(whohas_chunk_hash)
@@ -229,7 +228,6 @@ class Peer:
             send_chunk_checksum = data[:HASHLEN]
             # print(f"send_chunk_checksum = {send_chunk_checksum}")
 
-            # init sendBuffer, sendWindow
             self.sendBuffer[Team] = [self.haschunks[send_chunk_checksum][i*MAX_PAYLOAD: (i+1)*MAX_PAYLOAD] for i in range(512)]
             self.sendWin_lower[Team] = 1
             self.sendWin_upper[Team] = 1
@@ -330,19 +328,6 @@ class Peer:
 
                     # initial another handshake session
                     self.initial_download(sock, chunkf, outf)
-
-                    # # The following things are just for illustration, you do not need to print out in your design.
-                    # sha1 = hashlib.sha1()
-                    # sha1.update(self.ex_received_chunk[self.ex_downloading_chunkhash])
-                    # received_chunkhash_str = sha1.hexdigest()
-                    # print(f"Expected chunkhash: {self.ex_downloading_chunkhash}")
-                    # print(f"Received chunkhash: {received_chunkhash_str}")
-                    # success = self.ex_downloading_chunkhash == received_chunkhash_str
-                    # print(f"Successful received: {success}")
-                    # if success:
-                    #     print("Congrats! You have completed the example!")
-                    # else:
-                    #     print("Example fails. Please check the example files carefully.")
             else:
                 ack_pkt = struct.pack(
                     SENDPKT,
@@ -391,7 +376,6 @@ class Peer:
                         
                     # send next data
                     self.rdt_timer[Team] = time()
-                    # print(f'lower: {self.sendWin_lower}, upper: {self.sendWin_upper}')
                     while self.sendWin_upper[Team] <= 512 and self.sendWin_upper[Team] < self.sendWin_lower[Team] + self.congWinSize[Team]:
                             next_data = self.sendBuffer[Team][int(self.sendWin_upper[Team] - 1)]
                             # print(f'已经发出去的包：{self.sendWin_upper[Team]}')
